@@ -25,6 +25,7 @@ DEFAULT_DEVICE_CLASS = "tv"
 DEFAULT_DELAY = 0.5
 
 CONF_UNIQUE_ID = 'unique_id'
+CONF_MODEL = 'model'
 CONF_DEVICE_CODE = 'device_code'
 CONF_CONTROLLER_DATA = "controller_data"
 CONF_DELAY = "delay"
@@ -33,17 +34,49 @@ CONF_POWER_SENSOR = 'power_sensor'
 CONF_SOURCE_NAMES = 'source_names'
 CONF_DEVICE_CLASS = 'device_class'
 
+#add
+EASYIOT_CONTROLLER = "Easyiot"
+
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_UNIQUE_ID): cv.string,
+    vol.Optional(CONF_MODEL): cv.string,
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
     vol.Required(CONF_DEVICE_CODE): cv.positive_int,
     vol.Required(CONF_CONTROLLER_DATA): cv.string,
     vol.Optional(CONF_DELAY, default=DEFAULT_DELAY): cv.string,
-        vol.Optional(CONF_MQTT, default=False):cv.boolean,
+    vol.Optional(CONF_MQTT, default=False):cv.boolean,
     vol.Optional(CONF_POWER_SENSOR): cv.entity_id,
     vol.Optional(CONF_SOURCE_NAMES): dict,
     vol.Optional(CONF_DEVICE_CLASS, default=DEFAULT_DEVICE_CLASS): cv.string
 })
+
+async def set_controller(self):
+    """Set controller with given device code."""
+    
+    def create_command(command_str):
+        output = [int(command_str[i:i + 2], 16) for i in range(0, len(command_str), 2)]
+        checksum = zigbeeUartFrameCalcXOR(output)
+        command_str += f"{checksum:02x}"
+        return {"send_command": command_str}
+
+    def zigbeeUartFrameCalcXOR(msg):
+        xor_result = 0
+        for byte in msg:
+            xor_result ^= byte
+        return xor_result
+
+    try:
+        base_command = "8002" + self._model + "00"
+        command_list = [create_command(base_command)]
+
+        for command in command_list:
+            service_data = {
+                'topic': self._controller_data,
+                'payload': json.dumps(command)
+            }
+            await self.hass.services.async_call('mqtt', 'publish', service_data)
+    except Exception as e:
+        _LOGGER.error(f"Error setting controller: {e}")
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the IR Media Player platform."""
@@ -89,6 +122,7 @@ class SmartIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
     def __init__(self, hass, config, device_data):
         self.hass = hass
         self._unique_id = config.get(CONF_UNIQUE_ID)
+        self._model = config.get(CONF_MODEL)
         self._name = config.get(CONF_NAME)
         self._device_code = config.get(CONF_DEVICE_CODE)
         self._controller_data = config.get(CONF_CONTROLLER_DATA)
@@ -148,13 +182,19 @@ class SmartIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
 
         self._temp_lock = asyncio.Lock()
 
-        #Init the IR/RF controller
+        self.hass.async_create_task(self.async_initialize_controller())
+
+    async def async_initialize_controller(self):
+        # Init the IR/RF controller
         self._controller = get_controller(
             self.hass,
-            self._supported_controller, 
+            self._supported_controller,
             self._commands_encoding,
             self._controller_data,
             self._delay)
+        # If controller is EAYIOT, then
+        if self._supported_controller == EASYIOT_CONTROLLER:
+            await set_controller(self)
 
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
@@ -174,6 +214,11 @@ class SmartIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
     def unique_id(self):
         """Return a unique ID."""
         return self._unique_id
+
+    @property
+    def model(self):
+        """Return a unique ID."""
+        return self._model
 
     @property
     def name(self):
