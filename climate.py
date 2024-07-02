@@ -44,7 +44,6 @@ mode = ["auto", "cool", "dry", "fan_only", "heat"]
 temperature = [str(temp) for temp in range(16, 31)]  # Generating temperature values from 16 to 31
 speed = ["auto", "low", "mid", "high"]
 
-# them
 EASYIOT_CONTROLLER = "Easyiot"
 
 SUPPORT_FLAGS = (
@@ -497,13 +496,10 @@ class SmartIRClimate(ClimateEntity, RestoreEntity):
                 # self.async_write_ha_state()
                 await self.async_update_ha_state()
                 return
-            if self._support_swing == True:
-                await self._controller.send(self._commands[self._hvac_mode.lower()])
-            else:
-                if last_state == HVAC_MODE_OFF:
-                    await self._controller.send(self._commands['on'])
-                await asyncio.sleep(self._delay*2)
-                await self._controller.send(self._commands[self._hvac_mode.lower()])
+            if last_state == HVAC_MODE_OFF:
+                await self._controller.send(self._commands['on'])
+            await asyncio.sleep(self._delay*2)
+            await self._controller.send(self._commands[self._hvac_mode.lower()])
         else:
             await self.send_command()
 
